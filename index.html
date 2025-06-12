@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Castle Defense</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* General body styling */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #2c3e50; /* Dark background */
+            font-family: 'Press Start 2P', cursive; /* Retro font */
+            color: #ecf0f1; /* Light text color */
+            overflow: hidden; /* Prevent scrollbars */
+            flex-direction: column;
+        }
+
+        /* Game container styling */
+        .game-container {
+            position: relative;
+            background-color: #34495e; /* Slightly lighter dark background */
+            border: 5px solid #2980b9; /* Blue border */
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
+            border-radius: 8px; /* Rounded corners */
+            overflow: hidden;
+            width: 90vmin; /* Responsive width based on viewport */
+            max-width: 800px; /* Max width for desktop */
+            aspect-ratio: 4 / 3; /* Maintain aspect ratio */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        /* Canvas styling */
+        canvas {
+            background-color: #7f8c8d; /* Grey background for game area */
+            display: block;
+            border-radius: 4px;
+            width: 100%; /* Take full width of container */
+            height: calc(100% - 60px); /* Adjust height for score/message area */
+            object-fit: contain; /* Ensure canvas content scales without distortion */
+            image-rendering: pixelated; /* Retro pixelated effect */
+            cursor: none; /* Hide default mouse cursor */
+        }
+
+        /* Score display styling */
+        #score-display {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px #2c3e50; /* Text shadow for retro look */
+        }
+
+        /* Game message overlay styling */
+        #game-message {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7); /* Semi-transparent overlay */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-size: 1.8em; /* Slightly smaller default font size */
+            font-weight: bold;
+            color: #2ecc71; /* Green for win message */
+            border-radius: 8px;
+            z-index: 10; /* Above canvas */
+            text-shadow: 3px 3px #1abc9c;
+            line-height: 1.4;
+            padding: 10px; /* Reduced padding */
+            box-sizing: border-box;
+        }
+
+        #game-message button {
+            background-color: #e67e22; /* Orange button */
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin-top: 20px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1em;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 5px #d35400; /* Darker orange shadow */
+            transition: all 0.1s ease;
+        }
+
+        #game-message button:hover {
+            background-color: #d35400;
+            box-shadow: 0 3px #c0392b;
+            transform: translateY(2px);
+        }
+
+        #game-message button:active {
+            box-shadow: 0 0 #c0392b;
+            transform: translateY(5px);
+        }
+
+        /* Small screen adjustments */
+        @media (max-width: 600px) {
+            .game-container {
+                width: 95vmin;
+            }
+            #score-display {
+                font-size: 1.2em;
+            }
+            #game-message {
+                font-size: 1.2em; /* Significantly smaller on small screens */
+                padding: 5px; /* Even less padding on small screens */
+            }
+            #game-message button {
+                padding: 10px 20px;
+                font-size: 0.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div id="score-display">Score: 0</div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="game-message" style="display: none;">
+            <p>Congratulations, you've defended the castle!</p>
+            <button id="restart-button">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Get the canvas and its 2D rendering context
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Get the score display and game message elements
+        const scoreDisplay = document.getElementById('score-display');
+        const gameMessage = document.getElementById('game-message');
+        const restartButton = document.getElementById('restart-button');
+
+        // Game constants and variables
+        const GAME_WIDTH = 800; // Reference width for game logic
+        const GAME_HEIGHT = 600; // Reference height for game logic
+        const PLAYER_SIZE = 40;
+        const ZOMBIE_SIZE = 30;
+        const PLAYER_SPEED = 5; // This will now control how fast the player catches up to the mouse
+        const ZOMBIE_SPEED_MIN = 1;
+        const ZOMBIE_SPEED_MAX = 3;
+        const ATTACK_DURATION = 250; // Increased duration for attack visual (was 150ms)
+        const ATTACK_RANGE_WIDTH = 30;
+        const ATTACK_RANGE_HEIGHT = 30;
+        const WINNING_SCORE = 1000;
+        const INITIAL_ZOMBIES = 5;
+        const ZOMBIE_SPAWN_BUFFER_X = 50; // Distance from right edge to spawn
+
+        let player = {
+            x: 50,
+            y: GAME_HEIGHT / 2 - PLAYER_SIZE / 2,
+            width: PLAYER_SIZE,
+            height: PLAYER_SIZE,
+            dx: 0,
+            dy: 0,
+            isAttacking: false,
+            attackTimer: 0,
+            facingRight: true, // Player's last movement direction
+            targetX: 50, // Target X coordinate for player movement
+            targetY: GAME_HEIGHT / 2 - PLAYER_SIZE / 2 // Target Y coordinate for player movement
+        };
+
+        let zombies = [];
+        let score = 0;
+        let gameRunning = true;
+        let animationFrameId; // To store the requestAnimationFrame ID
+
+        /**
+         * Scales a value from the reference game dimensions to the actual canvas dimensions.
+         * This ensures game elements scale correctly on different screen sizes.
+         * @param {number} value The value to scale (e.g., coordinate, size, speed).
+         * @param {string} axis The axis ('x' for width/horizontal, 'y' for height/vertical).
+         * @returns {number} The scaled value.
+         */
+        function scaleValue(value, axis) {
+            if (axis === 'x') {
+                return value * (canvas.width / GAME_WIDTH);
+            } else if (axis === 'y') {
+                return value * (canvas.height / GAME_HEIGHT);
+            }
+            return value; // Should not happen
+        }
+
+        /**
+         * Inverse scales a value from the actual canvas dimensions to the reference game dimensions.
+         * Useful for converting mouse coordinates back to game logic coordinates.
+         * @param {number} value The value to inverse scale.
+         * @param {string} axis The axis ('x' for width/horizontal, 'y' for height/vertical).
+         * @returns {number} The inverse scaled value.
+         */
+        function inverseScaleValue(value, axis) {
+            if (axis === 'x') {
+                return value / (canvas.width / GAME_WIDTH);
+            } else if (axis === 'y') {
+                return value / (canvas.height / GAME_HEIGHT);
+            }
+            return value;
+        }
+
+        /**
+         * Resizes the canvas to fit the game container and updates dimensions.
+         * This function ensures the game is responsive.
+         */
+        function resizeCanvas() {
+            // Set canvas dimensions based on the container's computed size
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight - 60; // Subtract height for score display
+
+            // Redraw everything if game is running or not
+            if (gameRunning) {
+                draw();
+            } else if (score >= WINNING_SCORE) {
+                // If game has ended in a win, redraw the win state
+                draw();
+                gameMessage.style.display = 'flex';
+            } else {
+                // If game is paused or lost, just draw the current state
+                draw();
+            }
+        }
+
+        /**
+         * Generates a random integer within a specified range (inclusive).
+         * @param {number} min The minimum value.
+         * @param {number} max The maximum value.
+         * @returns {number} A random integer.
+         */
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        /**
+         * Creates a new zombie object with random initial properties.
+         * Zombies spawn from the right side of the canvas.
+         * @returns {object} The new zombie object.
+         */
+        function createZombie() {
+            return {
+                x: GAME_WIDTH - ZOMBIE_SPAWN_BUFFER_X, // Spawn from right side
+                y: getRandomInt(0, GAME_HEIGHT - ZOMBIE_SIZE), // Random vertical position
+                width: ZOMBIE_SIZE,
+                height: ZOMBIE_SIZE,
+                speed: getRandomInt(ZOMBIE_SPEED_MIN, ZOMBIE_SPEED_MAX),
+                dy: (Math.random() < 0.5 ? 1 : -1) * getRandomInt(1, 2) // Random vertical movement
+            };
+        }
+
+        /**
+         * Initializes the game state, resetting score and player/zombie positions.
+         */
+        function initializeGame() {
+            score = 0;
+            scoreDisplay.textContent = `Score: ${score}`;
+            gameRunning = true;
+            gameMessage.style.display = 'none';
+
+            player = {
+                x: 50,
+                y: GAME_HEIGHT / 2 - PLAYER_SIZE / 2,
+                width: PLAYER_SIZE,
+                height: PLAYER_SIZE,
+                dx: 0,
+                dy: 0,
+                isAttacking: false,
+                attackTimer: 0,
+                facingRight: true,
+                targetX: 50, // Reset target as well
+                targetY: GAME_HEIGHT / 2 - PLAYER_SIZE / 2 // Reset target as well
+            };
+
+            zombies = [];
+            for (let i = 0; i < INITIAL_ZOMBIES; i++) {
+                // Stagger initial zombie spawns slightly
+                setTimeout(() => {
+                    zombies.push(createZombie());
+                }, i * 200);
+            }
+
+            // Clear any existing animation frame to prevent multiple loops
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            animate(); // Start the game loop
+        }
+
+        /**
+         * Draws the player character on the canvas.
+         */
+        function drawPlayer() {
+            ctx.fillStyle = '#3498db'; // Blue color for player
+            ctx.fillRect(scaleValue(player.x, 'x'), scaleValue(player.y, 'y'), scaleValue(player.width, 'x'), scaleValue(player.height, 'y'));
+
+            // Draw player's eyes (simple dots for retro feel)
+            ctx.fillStyle = 'white';
+            const eyeSize = scaleValue(player.width / 5, 'x');
+            const eyeY = scaleValue(player.y + player.height / 3, 'y');
+
+            // Left eye
+            ctx.fillRect(scaleValue(player.x + player.width / 4, 'x'), eyeY, eyeSize, eyeSize);
+            // Right eye
+            ctx.fillRect(scaleValue(player.x + player.width * 3 / 4 - eyeSize, 'x'), eyeY, eyeSize, eyeSize);
+
+            // Draw attack indicator if attacking
+            if (player.isAttacking) {
+                ctx.fillStyle = 'rgba(231, 76, 60, 0.6)'; // Semi-transparent red
+                let attackX = player.x;
+                if (player.facingRight) {
+                    attackX = player.x + player.width;
+                } else {
+                    attackX = player.x - ATTACK_RANGE_WIDTH;
+                }
+                ctx.fillRect(
+                    scaleValue(attackX, 'x'),
+                    scaleValue(player.y + player.height / 4, 'y'),
+                    scaleValue(ATTACK_RANGE_WIDTH, 'x'),
+                    scaleValue(ATTACK_RANGE_HEIGHT, 'y')
+                );
+            }
+        }
+
+        /**
+         * Draws all zombies on the canvas.
+         */
+        function drawZombies() {
+            ctx.fillStyle = '#27ae60'; // Green color for zombies
+            zombies.forEach(zombie => {
+                ctx.fillRect(scaleValue(zombie.x, 'x'), scaleValue(zombie.y, 'y'), scaleValue(zombie.width, 'x'), scaleValue(zombie.height, 'y'));
+            });
+        }
+
+        /**
+         * Updates the game state, including player and zombie movements, and collision detection.
+         */
+        function update() {
+            // Player movement towards targetX, targetY (mouse position)
+            const dx = player.targetX - player.x;
+            const dy = player.targetY - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Only move if there's a significant distance to cover
+            if (distance > 1) { // A small threshold to prevent jittering
+                const speedX = (dx / distance) * PLAYER_SPEED;
+                const speedY = (dy / distance) * PLAYER_SPEED;
+
+                player.x += speedX;
+                player.y += speedY;
+
+                // Determine facing direction based on horizontal movement towards target
+                if (dx > 0.5) { // Moved right
+                    player.facingRight = true;
+                } else if (dx < -0.5) { // Moved left
+                    player.facingRight = false;
+                }
+            } else {
+                // If very close to target, snap to target to prevent overshooting
+                player.x = player.targetX;
+                player.y = player.targetY;
+            }
+
+
+            // Keep player within canvas bounds
+            player.x = Math.max(0, Math.min(player.x, GAME_WIDTH - player.width));
+            player.y = Math.max(0, Math.min(player.y, GAME_HEIGHT - player.height));
+
+            // Handle player attack state
+            if (player.isAttacking && Date.now() - player.attackTimer > ATTACK_DURATION) {
+                player.isAttacking = false;
+            }
+
+            // Update zombie positions and handle collisions
+            zombies = zombies.filter(zombie => {
+                // Move zombie left
+                zombie.x -= zombie.speed;
+
+                // Add random vertical movement (change direction periodically)
+                if (Math.random() < 0.02) { // 2% chance to change vertical direction
+                    zombie.dy = (Math.random() < 0.5 ? 1 : -1) * getRandomInt(1, 2);
+                }
+                zombie.y += zombie.dy;
+
+                // Keep zombie within vertical bounds
+                if (zombie.y <= 0 || zombie.y >= GAME_HEIGHT - zombie.height) {
+                    zombie.dy *= -1; // Reverse vertical direction if hitting top/bottom
+                    zombie.y = Math.max(0, Math.min(zombie.y, GAME_HEIGHT - zombie.height));
+                }
+
+                // If zombie goes off screen, reset its position to the right (acts as a simple respawn)
+                if (zombie.x < -ZOMBIE_SIZE) {
+                    zombie.x = GAME_WIDTH + getRandomInt(50, 200);
+                    zombie.y = getRandomInt(0, GAME_HEIGHT - ZOMBIE_SIZE);
+                    zombie.speed = getRandomInt(ZOMBIE_SPEED_MIN, ZOMBIE_SPEED_MAX);
+                    zombie.dy = (Math.random() < 0.5 ? 1 : -1) * getRandomInt(1, 2);
+                }
+
+                // Check for collision with player's attack
+                if (player.isAttacking) {
+                    let attackBox = {
+                        x: player.x,
+                        y: player.y + player.height / 4,
+                        width: ATTACK_RANGE_WIDTH,
+                        height: ATTACK_RANGE_HEIGHT
+                    };
+                    if (player.facingRight) {
+                        attackBox.x = player.x + player.width;
+                    } else {
+                        attackBox.x = player.x - ATTACK_RANGE_WIDTH;
+                    }
+
+                    // Simple AABB collision detection
+                    if (attackBox.x < zombie.x + zombie.width &&
+                        attackBox.x + attackBox.width > zombie.x &&
+                        attackBox.y < zombie.y + zombie.height &&
+                        attackBox.y + attackBox.height > zombie.y)
+                    {
+                        score += 100;
+                        scoreDisplay.textContent = `Score: ${score}`;
+                        // Return false to filter out this zombie (it's defeated)
+                        // Then add a new one to replace it
+                        setTimeout(() => {
+                            zombies.push(createZombie());
+                        }, 100); // Slight delay for new zombie spawn
+                        return false; // Zombie is defeated
+                    }
+                }
+                return true; // Zombie is still alive
+            });
+
+            // Check win condition
+            if (score >= WINNING_SCORE) {
+                gameRunning = false;
+                gameMessage.style.display = 'flex';
+                cancelAnimationFrame(animationFrameId); // Stop the game loop
+            }
+        }
+
+        /**
+         * Clears the canvas and draws all game elements.
+         */
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the entire canvas
+            drawPlayer();
+            drawZombies();
+        }
+
+        /**
+         * The main game loop function.
+         */
+        function animate() {
+            if (gameRunning) {
+                update(); // Update game state
+                draw();   // Draw elements
+                animationFrameId = requestAnimationFrame(animate); // Request next frame
+            }
+        }
+
+        // Event Listeners for player input
+        // Only 'v' key for attack is kept
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'v' && !player.isAttacking) {
+                player.isAttacking = true;
+                player.attackTimer = Date.now();
+                e.preventDefault(); // Prevent default 'v' key behavior if any
+            }
+        });
+
+        // Mouse movement listener for player movement
+        canvas.addEventListener('mousemove', (e) => {
+            // Get mouse position relative to the canvas
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // Convert mouse coordinates to game logic coordinates
+            player.targetX = inverseScaleValue(mouseX - player.width / 2, 'x');
+            player.targetY = inverseScaleValue(mouseY - player.height / 2, 'y');
+
+            // Ensure target is within game bounds
+            player.targetX = Math.max(0, Math.min(player.targetX, GAME_WIDTH - player.width));
+            player.targetY = Math.max(0, Math.min(player.targetY, GAME_HEIGHT - player.height));
+        });
+
+
+        // Event listener for restarting the game
+        restartButton.addEventListener('click', () => {
+            initializeGame();
+        });
+
+        // Initialize the game when the window loads
+        window.onload = function() {
+            resizeCanvas(); // Set initial canvas size
+            initializeGame(); // Start the game
+        }
+
+        // Add a resize listener to make the game responsive
+        window.addEventListener('resize', resizeCanvas);
+    </script>
+</body>
+</html>
