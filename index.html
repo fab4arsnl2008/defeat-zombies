@@ -150,7 +150,7 @@
         const GAME_HEIGHT = 600; // Reference height for game logic
         const PLAYER_SIZE = 40;
         const ZOMBIE_SIZE = 30;
-        const PLAYER_SPEED = 5; // This will now control how fast the player catches up to the mouse
+        const PLAYER_SPEED = 5; // This will now control how fast the player catches up to the mouse/arrow keys
         const ZOMBIE_SPEED_MIN = 1;
         const ZOMBIE_SPEED_MAX = 3;
         const ATTACK_DURATION = 250; // Increased duration for attack visual (was 150ms)
@@ -170,14 +170,17 @@
             isAttacking: false,
             attackTimer: 0,
             facingRight: true, // Player's last movement direction
-            targetX: 50, // Target X coordinate for player movement
-            targetY: GAME_HEIGHT / 2 - PLAYER_SIZE / 2 // Target Y coordinate for player movement
+            targetX: 50, // Target X coordinate for player movement (for mouse)
+            targetY: GAME_HEIGHT / 2 - PLAYER_SIZE / 2 // Target Y coordinate for player movement (for mouse)
         };
 
         let zombies = [];
         let score = 0;
         let gameRunning = true;
         let animationFrameId; // To store the requestAnimationFrame ID
+
+        // Object to keep track of currently pressed keys (re-added for arrow keys)
+        const keysPressed = {};
 
         /**
          * Scales a value from the reference game dimensions to the actual canvas dimensions.
@@ -347,31 +350,55 @@
          * Updates the game state, including player and zombie movements, and collision detection.
          */
         function update() {
-            // Player movement towards targetX, targetY (mouse position)
-            const dx = player.targetX - player.x;
-            const dy = player.targetY - player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            // Determine player movement based on arrow keys or mouse
+            let moveX = 0;
+            let moveY = 0;
 
-            // Only move if there's a significant distance to cover
-            if (distance > 1) { // A small threshold to prevent jittering
-                const speedX = (dx / distance) * PLAYER_SPEED;
-                const speedY = (dy / distance) * PLAYER_SPEED;
-
-                player.x += speedX;
-                player.y += speedY;
-
-                // Determine facing direction based on horizontal movement towards target
-                if (dx > 0.5) { // Moved right
-                    player.facingRight = true;
-                } else if (dx < -0.5) { // Moved left
-                    player.facingRight = false;
-                }
-            } else {
-                // If very close to target, snap to target to prevent overshooting
-                player.x = player.targetX;
-                player.y = player.targetY;
+            if (keysPressed['arrowleft']) {
+                moveX = -PLAYER_SPEED;
+            } else if (keysPressed['arrowright']) {
+                moveX = PLAYER_SPEED;
             }
 
+            if (keysPressed['arrowup']) {
+                moveY = -PLAYER_SPEED;
+            } else if (keysPressed['arrowdown']) {
+                moveY = PLAYER_SPEED;
+            }
+
+            if (moveX !== 0 || moveY !== 0) {
+                // If arrow keys are pressed, use them for movement
+                player.x += moveX;
+                player.y += moveY;
+
+                if (moveX > 0) player.facingRight = true;
+                if (moveX < 0) player.facingRight = false;
+
+            } else {
+                // If no arrow keys are pressed, follow the mouse
+                const dx = player.targetX - player.x;
+                const dy = player.targetY - player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > 1) { // A small threshold to prevent jittering
+                    const speedX = (dx / distance) * PLAYER_SPEED;
+                    const speedY = (dy / distance) * PLAYER_SPEED;
+
+                    player.x += speedX;
+                    player.y += speedY;
+
+                    // Determine facing direction based on horizontal movement towards target
+                    if (dx > 0.5) { // Moved right
+                        player.facingRight = true;
+                    } else if (dx < -0.5) { // Moved left
+                        player.facingRight = false;
+                    }
+                } else {
+                    // If very close to target, snap to target to prevent overshooting
+                    player.x = player.targetX;
+                    player.y = player.targetY;
+                }
+            }
 
             // Keep player within canvas bounds
             player.x = Math.max(0, Math.min(player.x, GAME_WIDTH - player.width));
@@ -469,29 +496,41 @@
         }
 
         // Event Listeners for player input
-        // Only 'v' key for attack is kept
+        // Re-added keydown for arrow keys
         window.addEventListener('keydown', (e) => {
+            keysPressed[e.key.toLowerCase()] = true; // Mark key as pressed
+            // Prevent default arrow key behavior (scrolling)
+            if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'v'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+            }
             if (e.key.toLowerCase() === 'v' && !player.isAttacking) {
                 player.isAttacking = true;
                 player.attackTimer = Date.now();
-                e.preventDefault(); // Prevent default 'v' key behavior if any
             }
+        });
+
+        // Re-added keyup for arrow keys
+        window.addEventListener('keyup', (e) => {
+            keysPressed[e.key.toLowerCase()] = false; // Mark key as released
         });
 
         // Mouse movement listener for player movement
         canvas.addEventListener('mousemove', (e) => {
-            // Get mouse position relative to the canvas
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+            // Only update target if no arrow keys are pressed
+            if (!keysPressed['arrowup'] && !keysPressed['arrowdown'] && !keysPressed['arrowleft'] && !keysPressed['arrowright']) {
+                // Get mouse position relative to the canvas
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
 
-            // Convert mouse coordinates to game logic coordinates
-            player.targetX = inverseScaleValue(mouseX - player.width / 2, 'x');
-            player.targetY = inverseScaleValue(mouseY - player.height / 2, 'y');
+                // Convert mouse coordinates to game logic coordinates
+                player.targetX = inverseScaleValue(mouseX - player.width / 2, 'x');
+                player.targetY = inverseScaleValue(mouseY - player.height / 2, 'y');
 
-            // Ensure target is within game bounds
-            player.targetX = Math.max(0, Math.min(player.targetX, GAME_WIDTH - player.width));
-            player.targetY = Math.max(0, Math.min(player.targetY, GAME_HEIGHT - player.height));
+                // Ensure target is within game bounds
+                player.targetX = Math.max(0, Math.min(player.targetX, GAME_WIDTH - player.width));
+                player.targetY = Math.max(0, Math.min(player.targetY, GAME_HEIGHT - player.height));
+            }
         });
 
 
